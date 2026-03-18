@@ -20,12 +20,22 @@ class LoginForm(AuthenticationForm):
 class TreasureTaskForm(forms.ModelForm):
     assignee_username = forms.CharField(
         required=False,
-        help_text="可选：指定执行者用户名（不填则任何人可领取）",
+        help_text="可选：指定执行者用户名（指定后任务自动变为进行中）",
+    )
+    publish_at = forms.DateTimeField(
+        required=False,
+        help_text="可选：发布时间（不填则立即发布）",
+        widget=forms.DateTimeInput(attrs={"type": "datetime-local"}),
+    )
+    expire_at = forms.DateTimeField(
+        required=False,
+        help_text="可选：过期时间（过期后奖励减半，创建者受积分惩罚）",
+        widget=forms.DateTimeInput(attrs={"type": "datetime-local"}),
     )
 
     class Meta:
         model = TreasureTask
-        fields = ("title", "description", "value_points", "assignee_username")
+        fields = ("title", "description", "value_points", "assignee_username", "publish_at", "expire_at")
 
 
 class MarketListingForm(forms.ModelForm):
@@ -56,6 +66,8 @@ def _bootstrapify(form):
         elif isinstance(widget, forms.Textarea):
             widget.attrs["class"] = (cls + " form-control").strip()
             widget.attrs.setdefault("rows", 4)
+        elif isinstance(widget, forms.DateTimeInput):
+            widget.attrs["class"] = (cls + " form-control").strip()
     return form
 
 
@@ -77,4 +89,3 @@ def market_form(*args, **kwargs) -> MarketListingForm:
 
 def bank_form(*args, **kwargs) -> BankExchangeForm:
     return _bootstrapify(BankExchangeForm(*args, **kwargs))
-

@@ -33,6 +33,36 @@
         <p class="text-muted mb-3">（暂无描述）</p>
       {% endif %}
 
+      {# 显示时间相关信息 #}
+      <div class="mb-3">
+        {% if task.publish_at %}
+          <div class="text-muted small">发布时间：{{ task.publish_at|date:"Y-m-d H:i" }}</div>
+        {% endif %}
+        {% if task.expire_at %}
+          <div class="text-muted small">过期时间：{{ task.expire_at|date:"Y-m-d H:i" }}</div>
+        {% endif %}
+      </div>
+
+      {# 过期状态提示 #}
+      {% if is_expired and task.status == "open" %}
+        <div class="alert alert-danger">
+          <strong>⚠️ 任务已过期！</strong><br>
+          当前奖励：<strong>{{ current_reward }} 积分</strong>（原 {{ task.value_points }} 积分，过期每天减半）<br>
+          当前惩罚：<strong>{{ current_penalty }} 积分</strong>（过期每天扣创建者 {{ task.value_points|add:3|divisibleby:4 }} 积分的 1/4，向上取整）
+        </div>
+      {% elif task.expire_at and task.status == "open" %}
+        <div class="alert alert-info">
+          过期时间：{{ task.expire_at|date:"Y-m-d H:i" }}，过期后奖励将减半并产生积分惩罚。
+        </div>
+      {% endif %}
+
+      {# 进行中的任务显示当前奖励 #}
+      {% if task.status == "claimed" and is_expired %}
+        <div class="alert alert-warning">
+          <strong>💡 提示：</strong>任务已过期，完成后只能获得 <strong>{{ current_reward }} 积分</strong>
+        </div>
+      {% endif %}
+
       {% if user.is_authenticated %}
         <div class="d-flex gap-2 flex-wrap">
           {% if task.status == "open" %}
@@ -67,4 +97,3 @@
     </div>
   </div>
 {% endblock %}
-

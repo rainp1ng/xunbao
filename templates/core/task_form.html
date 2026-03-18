@@ -29,6 +29,18 @@
               <div class="form-text">{{ form.assignee_username.help_text }}</div>
               <div class="text-danger small">{{ form.assignee_username.errors }}</div>
             </div>
+            <div class="mb-3">
+              <label class="form-label">发布时间（可选）</label>
+              {{ form.publish_at }}
+              <div class="form-text">{{ form.publish_at.help_text }}</div>
+              <div class="text-danger small">{{ form.publish_at.errors }}</div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">过期时间（可选）</label>
+              {{ form.expire_at }}
+              <div class="form-text">{{ form.expire_at.help_text }}</div>
+              <div class="text-danger small">{{ form.expire_at.errors }}</div>
+            </div>
             <button class="btn btn-primary" type="submit">创建宝藏盒子</button>
             <a class="btn btn-outline-secondary" href="{% url 'home' %}">返回</a>
           </form>
@@ -37,4 +49,3 @@
     </div>
   </div>
 {% endblock %}
-

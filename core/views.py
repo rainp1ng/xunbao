@@ -7,6 +7,7 @@ from django.db import transaction
 from django.db.models import F
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from .forms import bank_form, login_form, market_form, register_form, task_form
@@ -15,6 +16,15 @@ from .models import MarketListing, Profile, TreasureTask
 
 def home(request: HttpRequest) -> HttpResponse:
     tasks = TreasureTask.objects.exclude(status="completed").select_related("creator", "assignee").order_by("-created_at")[:50]
+    
+    # 应用过期惩罚检查
+    for task in tasks:
+        if task.expire_at and task.status == TreasureTask.Status.OPEN:
+            penalty = task.apply_daily_penalty()
+            if penalty > 0:
+                # 重新获取更新后的任务对象
+                pass
+    
     return render(request, "core/home.html", {"tasks": tasks})
 
 
@@ -57,7 +67,27 @@ def logout_view(request: HttpRequest) -> HttpResponse:
 
 def task_detail(request: HttpRequest, pk: int) -> HttpResponse:
     task = get_object_or_404(TreasureTask.objects.select_related("creator", "assignee"), pk=pk)
-    return render(request, "core/task_detail.html", {"task": task})
+    
+    # 应用过期惩罚检查
+    if task.expire_at and task.status == TreasureTask.Status.OPEN:
+        task.apply_daily_penalty()
+    
+    # 计算过期相关数据
+    is_expired = False
+    current_reward = task.value_points
+    current_penalty = 0
+    
+    if task.expire_at and timezone.now() > task.expire_at:
+        is_expired = True
+        current_reward = task.get_current_reward()
+        current_penalty = task.get_current_penalty()
+    
+    return render(request, "core/task_detail.html", {
+        "task": task,
+        "is_expired": is_expired,
+        "current_reward": current_reward,
+        "current_penalty": current_penalty,
+    })
 
 
 @login_required
@@ -72,10 +102,27 @@ def task_create(request: HttpRequest) -> HttpResponse:
                 if not assignee:
                     form.add_error("assignee_username", "该用户名不存在")
                     return render(request, "core/task_form.html", {"form": form})
+            
             task: TreasureTask = form.save(commit=False)
             task.creator = request.user
             task.assignee = assignee
-            task.status = TreasureTask.Status.OPEN
+            
+            # 如果指定了执行者，自动设为进行中
+            if assignee:
+                task.status = TreasureTask.Status.CLAIMED
+            else:
+                task.status = TreasureTask.Status.OPEN
+            
+            # 处理发布时间
+            publish_at = form.cleaned_data.get("publish_at")
+            if publish_at:
+                task.publish_at = publish_at
+            
+            # 处理过期时间
+            expire_at = form.cleaned_data.get("expire_at")
+            if expire_at:
+                task.expire_at = expire_at
+            
             task.save()
             messages.success(request, "藏宝成功，宝藏盒子已出现。")
             return redirect("task_detail", pk=task.pk)
@@ -110,10 +157,16 @@ def task_complete(request: HttpRequest, pk: int) -> HttpResponse:
                 raise ValueError("你无权完成该任务")
             if not proof:
                 raise ValueError("请填写完成任务的证明")
-            task.complete_and_reward()
+            actual_reward = task.complete_and_reward()
             task.completion_proof = proof
             task.save(update_fields=["status", "completed_at", "completion_proof"])
-        messages.success(request, "任务完成，积分已到账。")
+        
+        # 显示实际获得的积分
+        original_reward = task.value_points
+        if actual_reward < original_reward:
+            messages.success(request, f"任务完成，获得 {actual_reward} 积分（原奖励 {original_reward}，因过期已减半）。")
+        else:
+            messages.success(request, "任务完成，积分已到账。")
     except TreasureTask.DoesNotExist:
         messages.error(request, "任务不存在")
     except Exception as e:
@@ -128,6 +181,12 @@ def my_created_tasks(request: HttpRequest) -> HttpResponse:
         .select_related("assignee")
         .order_by("-created_at")
     )
+    
+    # 应用过期惩罚
+    for task in tasks:
+        if task.expire_at and task.status == TreasureTask.Status.OPEN:
+            task.apply_daily_penalty()
+    
     return render(request, "core/my_created_tasks.html", {"tasks": tasks})
 
 

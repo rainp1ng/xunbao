@@ -54,7 +54,6 @@ def home(request: HttpRequest) -> HttpResponse:
     return render(request, "core/home.html", {
         "tasks": tasks,
         "user_communities": user_communities,
-        "scope": scope,
         "selected_community_id": selected_community_id,
     })
 

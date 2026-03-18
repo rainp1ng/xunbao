@@ -16,6 +16,36 @@ class Profile(models.Model):
         return f"{self.user.username}({self.points}积分)"
 
 
+class Community(models.Model):
+    """社群"""
+    name = models.CharField(max_length=100, verbose_name="社群名称")
+    description = models.TextField(blank=True, verbose_name="社群描述")
+    creator = models.ForeignKey(User, on_delete=models.CASCADE, related_name="created_communities")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def is_member(self, user: User) -> bool:
+        return self.members.filter(id=user.id).exists()
+
+    def __str__(self) -> str:
+        return self.name
+
+    class Meta:
+        verbose_name = "社群"
+        verbose_name_plural = "社群"
+
+
+class CommunityMembership(models.Model):
+    """社群成员"""
+    community = models.ForeignKey(Community, on_delete=models.CASCADE, related_name="member_set")
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="community_memberships")
+    joined_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("community", "user")
+        verbose_name = "社群成员"
+        verbose_name_plural = "社群成员"
+
+
 class TreasureTask(models.Model):
     class Status(models.TextChoices):
         OPEN = "open", "可领取"
@@ -39,6 +69,16 @@ class TreasureTask(models.Model):
     # 发布时间和过期时间
     publish_at = models.DateTimeField(null=True, blank=True, verbose_name="发布时间")
     expire_at = models.DateTimeField(null=True, blank=True, verbose_name="过期时间")
+    
+    # 社群关联（为空则公开可见）
+    community = models.ForeignKey(
+        Community,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="tasks",
+        verbose_name="所属社群"
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     completed_at = models.DateTimeField(null=True, blank=True)
@@ -47,14 +87,18 @@ class TreasureTask(models.Model):
     # 记录已扣惩罚天数
     penalty_days_applied = models.PositiveIntegerField(default=0)
 
+    def is_visible_to(self, user: User) -> bool:
+        """判断任务是否对用户可见"""
+        if not self.community:
+            return True
+        return self.community.is_member(user)
+
     def get_current_reward(self) -> int:
         """计算当前实际奖励积分（过期后每天减半）"""
         if not self.expire_at or timezone.now() <= self.expire_at:
             return self.value_points
         
-        # 计算过期天数
         days_expired = (timezone.now() - self.expire_at).days
-        # 每天减半
         reward = self.value_points
         for _ in range(days_expired):
             reward = reward // 2
@@ -68,15 +112,11 @@ class TreasureTask(models.Model):
             return 0
         
         days_expired = (timezone.now() - self.expire_at).days
-        # 每天1/4的原始奖励积分，向上取整
         daily_penalty = math.ceil(self.value_points / 4)
         return daily_penalty * days_expired
 
     def apply_daily_penalty(self) -> int:
-        """
-        应用每日惩罚（扣除创建者积分）
-        返回本次扣除的积分
-        """
+        """应用每日惩罚（扣除创建者积分）"""
         if not self.expire_at or self.status == self.Status.COMPLETED:
             return 0
         
@@ -88,17 +128,14 @@ class TreasureTask(models.Model):
         if days_expired <= self.penalty_days_applied:
             return 0
         
-        # 计算需要扣除的惩罚天数
         days_to_charge = days_expired - self.penalty_days_applied
         daily_penalty = math.ceil(self.value_points / 4)
         total_penalty = daily_penalty * days_to_charge
         
-        # 扣除创建者积分（允许扣成负数）
         Profile.objects.filter(user_id=self.creator_id).update(
             points=F("points") - total_penalty
         )
         
-        # 更新已应用惩罚天数
         self.penalty_days_applied = days_expired
         self.save(update_fields=["penalty_days_applied"])
         
@@ -110,6 +147,9 @@ class TreasureTask(models.Model):
         if self.assignee_id is not None and self.assignee_id != user.id:
             return False
         if self.creator_id == user.id:
+            return False
+        # 社群任务只有成员可以领取
+        if self.community and not self.community.is_member(user):
             return False
         return True
 
@@ -123,13 +163,8 @@ class TreasureTask(models.Model):
         return self.status == self.Status.CLAIMED and self.assignee_id == user.id
 
     def complete_and_reward(self) -> int:
-        """
-        完成任务并发放奖励
-        返回实际发放的积分
-        """
         if self.status != self.Status.CLAIMED or self.assignee_id is None:
             raise ValueError("该任务不可完成")
-        # 使用当前实际奖励（可能已减半）
         actual_reward = self.get_current_reward()
         Profile.objects.filter(user_id=self.assignee_id).update(points=F("points") + actual_reward)
         self.status = self.Status.COMPLETED
@@ -160,7 +195,6 @@ class MarketListing(models.Model):
     def buy(self, buyer: User) -> None:
         if not self.can_buy(buyer):
             raise ValueError("该商品不可购买")
-        # 扣买家积分、加卖家积分
         updated = Profile.objects.filter(user=buyer, points__gte=self.price_points).update(
             points=F("points") - self.price_points
         )

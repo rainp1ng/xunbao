@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block content %}
+  <div class="row justify-content-center">
+    <div class="col-12 col-lg-8">
+      <div class="card shadow-sm">
+        <div class="card-body">
+          <h3 class="mb-3">创建社群</h3>
+          <form method="post" novalidate>
+            {% csrf_token %}
+            {{ form.non_field_errors }}
+            <div class="mb-3">
+              <label class="form-label">社群名称</label>
+              {{ form.name }}
+              <div class="text-danger small">{{ form.name.errors }}</div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">社群描述</label>
+              {{ form.description }}
+              <div class="text-danger small">{{ form.description.errors }}</div>
+            </div>
+            <button class="btn btn-primary" type="submit">创建社群</button>
+            <a class="btn btn-outline-secondary" href="{% url 'community_list' %}">返回</a>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+{% endblock %}

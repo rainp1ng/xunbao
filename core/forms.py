@@ -2,7 +2,7 @@ from django import forms
 from django.contrib.auth.forms import AuthenticationForm, UserCreationForm
 from django.contrib.auth.models import User
 
-from .models import MarketListing, TreasureTask
+from .models import Community, MarketListing, TreasureTask
 
 
 class RegisterForm(UserCreationForm):
@@ -15,6 +15,12 @@ class RegisterForm(UserCreationForm):
 
 class LoginForm(AuthenticationForm):
     pass
+
+
+class CommunityForm(forms.ModelForm):
+    class Meta:
+        model = Community
+        fields = ("name", "description")
 
 
 class TreasureTaskForm(forms.ModelForm):
@@ -32,10 +38,14 @@ class TreasureTaskForm(forms.ModelForm):
         help_text="可选：过期时间（过期后奖励减半，创建者受积分惩罚）",
         widget=forms.DateTimeInput(attrs={"type": "datetime-local"}),
     )
+    community_id = forms.IntegerField(
+        required=False,
+        help_text="可选：选择社群（社群任务只对成员可见）",
+    )
 
     class Meta:
         model = TreasureTask
-        fields = ("title", "description", "value_points", "assignee_username", "publish_at", "expire_at")
+        fields = ("title", "description", "value_points", "assignee_username", "publish_at", "expire_at", "community_id")
 
 
 class MarketListingForm(forms.ModelForm):
@@ -68,6 +78,8 @@ def _bootstrapify(form):
             widget.attrs.setdefault("rows", 4)
         elif isinstance(widget, forms.DateTimeInput):
             widget.attrs["class"] = (cls + " form-control").strip()
+        elif isinstance(widget, forms.Select):
+            widget.attrs["class"] = (cls + " form-select").strip()
     return form
 
 
@@ -80,7 +92,12 @@ def login_form(*args, **kwargs) -> LoginForm:
 
 
 def task_form(*args, **kwargs) -> TreasureTaskForm:
-    return _bootstrapify(TreasureTaskForm(*args, **kwargs))
+    user = kwargs.pop("user", None)
+    return _bootstrapify(TreasureTaskForm(*args, user=user, **kwargs))
+
+
+def community_form(*args, **kwargs) -> CommunityForm:
+    return _bootstrapify(CommunityForm(*args, **kwargs))
 
 
 def market_form(*args, **kwargs) -> MarketListingForm:

@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block content %}
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <div>
+      <h2 class="mb-1">社群</h2>
+      <div class="text-muted">创建或加入社群，与志同道合的人一起寻宝。</div>
+    </div>
+    <a class="btn btn-primary" href="{% url 'community_create' %}">+ 创建社群</a>
+  </div>
+
+  <div class="row g-3">
+    {% for community in communities %}
+      <div class="col-12 col-md-6 col-lg-4">
+        <div class="card shadow-sm">
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-start">
+              <h5 class="card-title mb-0">
+                <a class="text-decoration-none" href="{% url 'community_detail' community.pk %}">
+                  {{ community.name }}
+                </a>
+              </h5>
+              {% if community.id in user_communities %}
+                <span class="badge text-bg-success">已加入</span>
+              {% endif %}
+            </div>
+            <div class="small text-muted mb-2">
+              创建者：{{ community.creator.username }} · {{ community.member_set.count }} 成员
+            </div>
+            {% if community.description %}
+              <p class="card-text text-truncate">{{ community.description }}</p>
+            {% else %}
+              <p class="card-text text-muted">（暂无描述）</p>
+            {% endif %}
+            <a class="btn btn-outline-dark btn-sm" href="{% url 'community_detail' community.pk %}">查看详情</a>
+          </div>
+        </div>
+      </div>
+    {% empty %}
+      <div class="col-12">
+        <div class="alert alert-info">还没有社群，创建一个吧！</div>
+      </div>
+    {% endfor %}
+  </div>
+{% endblock %}

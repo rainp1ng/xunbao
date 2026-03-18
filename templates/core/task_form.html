@@ -41,6 +41,16 @@
               <div class="form-text">{{ form.expire_at.help_text }}</div>
               <div class="text-danger small">{{ form.expire_at.errors }}</div>
             </div>
+            <div class="mb-3">
+              <label class="form-label">所属社群（可选）</label>
+              <select name="community_id" class="form-select">
+                <option value="">公开任务（所有人可见）</option>
+                {% for c in communities %}
+                  <option value="{{ c.id }}">{{ c.name }}</option>
+                {% endfor %}
+              </select>
+              <div class="form-text">社群任务只对成员可见，只有成员可以领取</div>
+            </div>
             <button class="btn btn-primary" type="submit">创建宝藏盒子</button>
             <a class="btn btn-outline-secondary" href="{% url 'home' %}">返回</a>
           </form>

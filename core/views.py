@@ -4,26 +4,33 @@ from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 from django.db import transaction
-from django.db.models import F
+from django.db.models import F, Q
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from .forms import bank_form, login_form, market_form, register_form, task_form
-from .models import MarketListing, Profile, TreasureTask
+from .forms import bank_form, community_form, login_form, market_form, register_form, task_form
+from .models import Community, CommunityMembership, MarketListing, Profile, TreasureTask
 
 
 def home(request: HttpRequest) -> HttpResponse:
-    tasks = TreasureTask.objects.exclude(status="completed").select_related("creator", "assignee").order_by("-created_at")[:50]
+    tasks = TreasureTask.objects.exclude(status="completed")
+    
+    if request.user.is_authenticated:
+        # 公开任务 + 用户所属社群的任务
+        user_communities = Community.objects.filter(members=request.user)
+        tasks = tasks.filter(Q(community__isnull=True) | Q(community__in=user_communities))
+    else:
+        # 未登录只看公开任务
+        tasks = tasks.filter(community__isnull=True)
+    
+    tasks = tasks.select_related("creator", "assignee", "community").order_by("-created_at")[:50]
     
     # 应用过期惩罚检查
     for task in tasks:
         if task.expire_at and task.status == TreasureTask.Status.OPEN:
-            penalty = task.apply_daily_penalty()
-            if penalty > 0:
-                # 重新获取更新后的任务对象
-                pass
+            task.apply_daily_penalty()
     
     return render(request, "core/home.html", {"tasks": tasks})
 
@@ -66,7 +73,12 @@ def logout_view(request: HttpRequest) -> HttpResponse:
 
 
 def task_detail(request: HttpRequest, pk: int) -> HttpResponse:
-    task = get_object_or_404(TreasureTask.objects.select_related("creator", "assignee"), pk=pk)
+    task = get_object_or_404(TreasureTask.objects.select_related("creator", "assignee", "community"), pk=pk)
+    
+    # 检查可见性
+    if task.community and not task.community.is_member(request.user):
+        messages.error(request, "你没有权限查看此任务。")
+        return redirect("home")
     
     # 应用过期惩罚检查
     if task.expire_at and task.status == TreasureTask.Status.OPEN:
@@ -93,7 +105,7 @@ def task_detail(request: HttpRequest, pk: int) -> HttpResponse:
 @login_required
 def task_create(request: HttpRequest) -> HttpResponse:
     if request.method == "POST":
-        form = task_form(request.POST)
+        form = task_form(request.POST, user=request.user)
         if form.is_valid():
             assignee_username = (form.cleaned_data.get("assignee_username") or "").strip()
             assignee = None
@@ -103,9 +115,20 @@ def task_create(request: HttpRequest) -> HttpResponse:
                     form.add_error("assignee_username", "该用户名不存在")
                     return render(request, "core/task_form.html", {"form": form})
             
+            # 处理社群
+            community_id = form.cleaned_data.get("community_id")
+            community = None
+            if community_id:
+                try:
+                    community = Community.objects.get(pk=community_id, members=request.user)
+                except Community.DoesNotExist:
+                    form.add_error("community_id", "你不在该社群中")
+                    return render(request, "core/task_form.html", {"form": form})
+            
             task: TreasureTask = form.save(commit=False)
             task.creator = request.user
             task.assignee = assignee
+            task.community = community
             
             # 如果指定了执行者，自动设为进行中
             if assignee:
@@ -113,22 +136,16 @@ def task_create(request: HttpRequest) -> HttpResponse:
             else:
                 task.status = TreasureTask.Status.OPEN
             
-            # 处理发布时间
-            publish_at = form.cleaned_data.get("publish_at")
-            if publish_at:
-                task.publish_at = publish_at
-            
-            # 处理过期时间
-            expire_at = form.cleaned_data.get("expire_at")
-            if expire_at:
-                task.expire_at = expire_at
-            
             task.save()
             messages.success(request, "藏宝成功，宝藏盒子已出现。")
             return redirect("task_detail", pk=task.pk)
     else:
-        form = task_form()
-    return render(request, "core/task_form.html", {"form": form})
+        form = task_form(user=request.user)
+    
+    # 获取用户所属社群
+    communities = Community.objects.filter(members=request.user)
+    
+    return render(request, "core/task_form.html", {"form": form, "communities": communities})
 
 
 @login_required
@@ -161,7 +178,6 @@ def task_complete(request: HttpRequest, pk: int) -> HttpResponse:
             task.completion_proof = proof
             task.save(update_fields=["status", "completed_at", "completion_proof"])
         
-        # 显示实际获得的积分
         original_reward = task.value_points
         if actual_reward < original_reward:
             messages.success(request, f"任务完成，获得 {actual_reward} 积分（原奖励 {original_reward}，因过期已减半）。")
@@ -178,11 +194,10 @@ def task_complete(request: HttpRequest, pk: int) -> HttpResponse:
 def my_created_tasks(request: HttpRequest) -> HttpResponse:
     tasks = (
         TreasureTask.objects.filter(creator=request.user)
-        .select_related("assignee")
+        .select_related("assignee", "community")
         .order_by("-created_at")
     )
     
-    # 应用过期惩罚
     for task in tasks:
         if task.expire_at and task.status == TreasureTask.Status.OPEN:
             task.apply_daily_penalty()
@@ -194,11 +209,93 @@ def my_created_tasks(request: HttpRequest) -> HttpResponse:
 def my_assigned_tasks(request: HttpRequest) -> HttpResponse:
     tasks = (
         TreasureTask.objects.filter(assignee=request.user)
-        .select_related("creator")
+        .select_related("creator", "community")
         .order_by("-created_at")
     )
     return render(request, "core/my_assigned_tasks.html", {"tasks": tasks})
 
+
+# ========== 社群相关视图 ==========
+
+@login_required
+def community_list(request: HttpRequest) -> HttpResponse:
+    """社群列表"""
+    communities = Community.objects.all().order_by("-created_at")
+    
+    # 标记用户是否已加入
+    user_communities = set(
+        CommunityMembership.objects.filter(user=request.user).values_list("community_id", flat=True)
+    )
+    
+    return render(request, "core/community_list.html", {
+        "communities": communities,
+        "user_communities": user_communities,
+    })
+
+
+@login_required
+def community_detail(request: HttpRequest, pk: int) -> HttpResponse:
+    """社群详情"""
+    community = get_object_or_404(Community, pk=pk)
+    is_member = community.is_member(request.user)
+    
+    # 社群任务（只有成员可见）
+    tasks = []
+    if is_member:
+        tasks = TreasureTask.objects.filter(community=community).select_related("creator", "assignee").order_by("-created_at")[:20]
+    
+    members = community.member_set.all().select_related("user")
+    
+    return render(request, "core/community_detail.html", {
+        "community": community,
+        "is_member": is_member,
+        "tasks": tasks,
+        "members": members,
+    })
+
+
+@login_required
+def community_create(request: HttpRequest) -> HttpResponse:
+    """创建社群"""
+    if request.method == "POST":
+        form = community_form(request.POST)
+        if form.is_valid():
+            community: Community = form.save(commit=False)
+            community.creator = request.user
+            community.save()
+            # 创建者自动加入
+            CommunityMembership.objects.create(community=community, user=request.user)
+            messages.success(request, f"社群「{community.name}」创建成功！")
+            return redirect("community_detail", pk=community.pk)
+    else:
+        form = community_form()
+    return render(request, "core/community_form.html", {"form": form})
+
+
+@login_required
+@require_POST
+def community_join(request: HttpRequest, pk: int) -> HttpResponse:
+    """加入社群"""
+    community = get_object_or_404(Community, pk=pk)
+    if community.is_member(request.user):
+        messages.warning(request, "你已经是该社群成员了。")
+    else:
+        CommunityMembership.objects.create(community=community, user=request.user)
+        messages.success(request, f"已加入社群「{community.name}」！")
+    return redirect("community_detail", pk=pk)
+
+
+@login_required
+@require_POST
+def community_leave(request: HttpRequest, pk: int) -> HttpResponse:
+    """退出社群"""
+    community = get_object_or_404(Community, pk=pk)
+    CommunityMembership.objects.filter(community=community, user=request.user).delete()
+    messages.info(request, f"已退出社群「{community.name}」。")
+    return redirect("community_list")
+
+
+# ========== 市场相关视图 ==========
 
 def market_list(request: HttpRequest) -> HttpResponse:
     listings = (

@@ -20,11 +20,30 @@ class Community(models.Model):
     """社群"""
     name = models.CharField(max_length=100, verbose_name="社群名称")
     description = models.TextField(blank=True, verbose_name="社群描述")
-    creator = models.ForeignKey(User, on_delete=models.CASCADE, related_name="created_communities")
+    creator = models.ForeignKey(User, on_delete=models.CASCADE, related_name="created_communities", verbose_name="群主")
+    members = models.ManyToManyField(User, through="CommunityMembership", related_name="communities", blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def is_member(self, user: User) -> bool:
         return self.members.filter(id=user.id).exists()
+
+    def is_admin(self, user: User) -> bool:
+        """判断是否是管理员（包括群主）"""
+        if self.creator_id == user.id:
+            return True
+        return self.memberships.filter(user=user, is_admin=True).exists()
+
+    def is_owner(self, user: User) -> bool:
+        """判断是否是群主"""
+        return self.creator_id == user.id
+
+    def admin_count(self) -> int:
+        """管理员数量（不包括群主）"""
+        return self.memberships.filter(is_admin=True).count()
+
+    def can_add_admin(self) -> bool:
+        """是否可以添加管理员"""
+        return self.admin_count() < 5
 
     def __str__(self) -> str:
         return self.name
@@ -36,14 +55,37 @@ class Community(models.Model):
 
 class CommunityMembership(models.Model):
     """社群成员"""
-    community = models.ForeignKey(Community, on_delete=models.CASCADE, related_name="member_set")
+    community = models.ForeignKey(Community, on_delete=models.CASCADE, related_name="memberships")
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="community_memberships")
+    is_admin = models.BooleanField(default=False, verbose_name="是否管理员")
     joined_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         unique_together = ("community", "user")
         verbose_name = "社群成员"
         verbose_name_plural = "社群成员"
+
+
+class JoinRequest(models.Model):
+    """入群申请"""
+    STATUS_CHOICES = [
+        ("pending", "待审批"),
+        ("approved", "已通过"),
+        ("rejected", "已拒绝"),
+    ]
+    
+    community = models.ForeignKey(Community, on_delete=models.CASCADE, related_name="join_requests")
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="join_requests")
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default="pending")
+    message = models.TextField(blank=True, verbose_name="申请留言")
+    created_at = models.DateTimeField(auto_now_add=True)
+    processed_at = models.DateTimeField(null=True, blank=True)
+    processed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="processed_requests")
+
+    class Meta:
+        unique_together = ("community", "user")
+        verbose_name = "入群申请"
+        verbose_name_plural = "入群申请"
 
 
 class TreasureTask(models.Model):

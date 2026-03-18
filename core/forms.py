@@ -38,14 +38,10 @@ class TreasureTaskForm(forms.ModelForm):
         help_text="可选：过期时间（过期后奖励减半，创建者受积分惩罚）",
         widget=forms.DateTimeInput(attrs={"type": "datetime-local"}),
     )
-    community_id = forms.IntegerField(
-        required=False,
-        help_text="可选：选择社群（社群任务只对成员可见）",
-    )
 
     class Meta:
         model = TreasureTask
-        fields = ("title", "description", "value_points", "assignee_username", "publish_at", "expire_at", "community_id")
+        fields = ("title", "description", "value_points", "assignee_username", "publish_at", "expire_at")
 
 
 class MarketListingForm(forms.ModelForm):
@@ -92,8 +88,7 @@ def login_form(*args, **kwargs) -> LoginForm:
 
 
 def task_form(*args, **kwargs) -> TreasureTaskForm:
-    user = kwargs.pop("user", None)
-    return _bootstrapify(TreasureTaskForm(*args, user=user, **kwargs))
+    return _bootstrapify(TreasureTaskForm(*args, **kwargs))
 
 
 def community_form(*args, **kwargs) -> CommunityForm:

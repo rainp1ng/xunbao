@@ -9,19 +9,20 @@
       <div class="d-flex justify-content-between align-items-start">
         <div>
           <h2 class="mb-1">{{ community.name }}</h2>
-          <div class="text-muted">创建者：{{ community.creator.username }} · {{ members.count }} 成员</div>
+          <div class="text-muted">群主：{{ community.creator.username }} · {{ community.members.count }} 成员</div>
         </div>
         <div class="d-flex gap-2">
           {% if is_member %}
-            <form method="post" action="{% url 'community_leave' community.pk %}">
-              {% csrf_token %}
-              <button class="btn btn-outline-danger" type="submit">退出社群</button>
-            </form>
+            {% if not is_owner %}
+              <form method="post" action="{% url 'community_leave' community.pk %}">
+                {% csrf_token %}
+                <button class="btn btn-outline-danger" type="submit">退出社群</button>
+              </form>
+            {% endif %}
+          {% elif has_pending_request %}
+            <span class="text-muted">申请审批中...</span>
           {% else %}
-            <form method="post" action="{% url 'community_join' community.pk %}">
-              {% csrf_token %}
-              <button class="btn btn-success" type="submit">加入社群</button>
-            </form>
+            <button class="btn btn-success" type="button" data-bs-toggle="modal" data-bs-target="#joinModal">申请加入</button>
           {% endif %}
         </div>
       </div>
@@ -39,15 +40,39 @@
   <div class="row">
     <div class="col-md-6 mb-3">
       <div class="card">
-        <div class="card-header">成员</div>
-        <div class="card-body">
+        <div class="card-header">成员 ({{ memberships.count }})</div>
+        <div class="card-body" style="max-height: 400px; overflow-y: auto;">
           <ul class="list-group list-group-flush">
-            {% for member in members %}
+            {% for membership in memberships %}
               <li class="list-group-item d-flex justify-content-between align-items-center">
-                {{ member.user.username }}
-                {% if member.user == community.creator %}
-                  <span class="badge text-bg-primary">创建者</span>
-                {% endif %}
+                <span>{{ membership.user.username }}</span>
+                <div class="d-flex gap-2 align-items-center">
+                  {% if membership.user == community.creator %}
+                    <span class="badge text-bg-primary">群主</span>
+                  {% elif membership.is_admin %}
+                    <span class="badge text-bg-success">管理员</span>
+                    {% if is_owner %}
+                      <form method="post" action="{% url 'community_remove_admin' community.pk %}" class="d-inline">
+                        {% csrf_token %}
+                        <input type="hidden" name="user_id" value="{{ membership.user.id }}">
+                        <button class="btn btn-sm btn-outline-secondary" type="submit">取消管理员</button>
+                      </form>
+                    {% endif %}
+                  {% else %}
+                    {% if is_owner %}
+                      <form method="post" action="{% url 'community_add_admin' community.pk %}" class="d-inline">
+                        {% csrf_token %}
+                        <input type="hidden" name="user_id" value="{{ membership.user.id }}">
+                        <button class="btn btn-sm btn-outline-primary" type="submit">设为管理员</button>
+                      </form>
+                      <form method="post" action="{% url 'community_transfer_owner' community.pk %}" class="d-inline" onsubmit="return confirm('确定要将群主转让给 {{ membership.user.username }} 吗？');">
+                        {% csrf_token %}
+                        <input type="hidden" name="user_id" value="{{ membership.user.id }}">
+                        <button class="btn btn-sm btn-outline-warning" type="submit">转让群主</button>
+                      </form>
+                    {% endif %}
+                  {% endif %}
+                </div>
               </li>
             {% empty %}
               <li class="list-group-item text-muted">暂无成员</li>
@@ -58,6 +83,32 @@
     </div>
 
     <div class="col-md-6 mb-3">
+      {% if is_admin and pending_requests %}
+      <div class="card mb-3">
+        <div class="card-header bg-warning">待审批入群申请 ({{ pending_requests|length }})</div>
+        <div class="card-body">
+          <ul class="list-group list-group-flush">
+            {% for req in pending_requests %}
+              <li class="list-group-item">
+                <div class="d-flex justify-content-between align-items-center">
+                  <div>
+                    <strong>{{ req.user.username }}</strong>
+                    {% if req.message %}<br><small class="text-muted">{{ req.message }}</small>{% endif %}
+                  </div>
+                  <form method="post" action="{% url 'community_approve_request' community.pk %}" class="d-flex gap-1">
+                    {% csrf_token %}
+                    <input type="hidden" name="request_id" value="{{ req.id }}">
+                    <button class="btn btn-sm btn-success" name="action" value="approve" type="submit">同意</button>
+                    <button class="btn btn-sm btn-danger" name="action" value="reject" type="submit">拒绝</button>
+                  </form>
+                </div>
+              </li>
+            {% endfor %}
+          </ul>
+        </div>
+      </div>
+      {% endif %}
+
       <div class="card">
         <div class="card-header d-flex justify-content-between align-items-center">
           社群任务
@@ -84,4 +135,31 @@
       </div>
     </div>
   </div>
+
+  {# 申请加入弹窗 #}
+  {% if not is_member and not has_pending_request %}
+  <div class="modal fade" id="joinModal" tabindex="-1">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <form method="post" action="{% url 'community_join' community.pk %}">
+          {% csrf_token %}
+          <div class="modal-header">
+            <h5 class="modal-title">申请加入「{{ community.name }}」</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <div class="mb-3">
+              <label class="form-label">申请留言（可选）</label>
+              <textarea name="message" class="form-control" rows="3" placeholder="简单介绍一下自己..."></textarea>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+            <button type="submit" class="btn btn-success">提交申请</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+  {% endif %}
 {% endblock %}

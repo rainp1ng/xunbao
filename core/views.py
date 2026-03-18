@@ -11,16 +11,28 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from .forms import bank_form, community_form, login_form, market_form, register_form, task_form
-from .models import Community, CommunityMembership, MarketListing, Profile, TreasureTask
+from .models import Community, CommunityMembership, JoinRequest, MarketListing, Profile, TreasureTask
 
 
 def home(request: HttpRequest) -> HttpResponse:
     tasks = TreasureTask.objects.exclude(status="completed")
     
+    # 获取筛选参数
+    scope = request.GET.get("scope", "world")
+    selected_community_id = request.GET.get("community", "")
+    
     if request.user.is_authenticated:
-        # 公开任务 + 用户所属社群的任务
-        user_communities = Community.objects.filter(members=request.user)
-        tasks = tasks.filter(Q(community__isnull=True) | Q(community__in=user_communities))
+        if scope == "world":
+            # 世界：公开任务 + 用户所属社群的任务
+            user_communities = Community.objects.filter(members=request.user)
+            tasks = tasks.filter(Q(community__isnull=True) | Q(community__in=user_communities))
+        elif selected_community_id:
+            # 指定社群
+            try:
+                community = Community.objects.get(pk=selected_community_id, members=request.user)
+                tasks = tasks.filter(community=community)
+            except Community.DoesNotExist:
+                tasks = tasks.filter(community__isnull=True)
     else:
         # 未登录只看公开任务
         tasks = tasks.filter(community__isnull=True)
@@ -32,7 +44,17 @@ def home(request: HttpRequest) -> HttpResponse:
         if task.expire_at and task.status == TreasureTask.Status.OPEN:
             task.apply_daily_penalty()
     
-    return render(request, "core/home.html", {"tasks": tasks})
+    # 获取用户所属社群（用于下拉框）
+    user_communities = []
+    if request.user.is_authenticated:
+        user_communities = Community.objects.filter(members=request.user)
+    
+    return render(request, "core/home.html", {
+        "tasks": tasks,
+        "user_communities": user_communities,
+        "scope": scope,
+        "selected_community_id": selected_community_id,
+    })
 
 
 def register(request: HttpRequest) -> HttpResponse:
@@ -105,7 +127,7 @@ def task_detail(request: HttpRequest, pk: int) -> HttpResponse:
 @login_required
 def task_create(request: HttpRequest) -> HttpResponse:
     if request.method == "POST":
-        form = task_form(request.POST, user=request.user)
+        form = task_form(request.POST)
         if form.is_valid():
             assignee_username = (form.cleaned_data.get("assignee_username") or "").strip()
             assignee = None
@@ -113,17 +135,16 @@ def task_create(request: HttpRequest) -> HttpResponse:
                 assignee = User.objects.filter(username=assignee_username).first()
                 if not assignee:
                     form.add_error("assignee_username", "该用户名不存在")
-                    return render(request, "core/task_form.html", {"form": form})
+                    return render(request, "core/task_form.html", {"form": form, "communities": Community.objects.filter(members=request.user)})
             
             # 处理社群
-            community_id = form.cleaned_data.get("community_id")
+            community_id = request.POST.get("community_id")
             community = None
             if community_id:
                 try:
                     community = Community.objects.get(pk=community_id, members=request.user)
-                except Community.DoesNotExist:
-                    form.add_error("community_id", "你不在该社群中")
-                    return render(request, "core/task_form.html", {"form": form})
+                except (Community.DoesNotExist, ValueError):
+                    pass
             
             task: TreasureTask = form.save(commit=False)
             task.creator = request.user
@@ -140,7 +161,7 @@ def task_create(request: HttpRequest) -> HttpResponse:
             messages.success(request, "藏宝成功，宝藏盒子已出现。")
             return redirect("task_detail", pk=task.pk)
     else:
-        form = task_form(user=request.user)
+        form = task_form()
     
     # 获取用户所属社群
     communities = Community.objects.filter(members=request.user)
@@ -227,9 +248,15 @@ def community_list(request: HttpRequest) -> HttpResponse:
         CommunityMembership.objects.filter(user=request.user).values_list("community_id", flat=True)
     )
     
+    # 用户待审批的申请
+    pending_requests = set(
+        JoinRequest.objects.filter(user=request.user, status="pending").values_list("community_id", flat=True)
+    )
+    
     return render(request, "core/community_list.html", {
         "communities": communities,
         "user_communities": user_communities,
+        "pending_requests": pending_requests,
     })
 
 
@@ -238,19 +265,36 @@ def community_detail(request: HttpRequest, pk: int) -> HttpResponse:
     """社群详情"""
     community = get_object_or_404(Community, pk=pk)
     is_member = community.is_member(request.user)
+    is_admin = community.is_admin(request.user)
+    is_owner = community.is_owner(request.user)
     
     # 社群任务（只有成员可见）
     tasks = []
     if is_member:
         tasks = TreasureTask.objects.filter(community=community).select_related("creator", "assignee").order_by("-created_at")[:20]
     
-    members = community.member_set.all().select_related("user")
+    # 获取成员列表
+    memberships = community.memberships.all().select_related("user")
+    
+    # 获取待审批的入群申请
+    pending_requests = []
+    if is_admin:
+        pending_requests = JoinRequest.objects.filter(community=community, status="pending").select_related("user")
+    
+    # 检查用户是否已申请
+    has_pending_request = False
+    if not is_member:
+        has_pending_request = JoinRequest.objects.filter(community=community, user=request.user, status="pending").exists()
     
     return render(request, "core/community_detail.html", {
         "community": community,
         "is_member": is_member,
+        "is_admin": is_admin,
+        "is_owner": is_owner,
         "tasks": tasks,
-        "members": members,
+        "memberships": memberships,
+        "pending_requests": pending_requests,
+        "has_pending_request": has_pending_request,
     })
 
 
@@ -275,13 +319,22 @@ def community_create(request: HttpRequest) -> HttpResponse:
 @login_required
 @require_POST
 def community_join(request: HttpRequest, pk: int) -> HttpResponse:
-    """加入社群"""
+    """申请加入社群"""
     community = get_object_or_404(Community, pk=pk)
+    
     if community.is_member(request.user):
         messages.warning(request, "你已经是该社群成员了。")
-    else:
-        CommunityMembership.objects.create(community=community, user=request.user)
-        messages.success(request, f"已加入社群「{community.name}」！")
+        return redirect("community_detail", pk=pk)
+    
+    # 检查是否已有待审批的申请
+    if JoinRequest.objects.filter(community=community, user=request.user, status="pending").exists():
+        messages.warning(request, "你已提交过申请，请等待审批。")
+        return redirect("community_detail", pk=pk)
+    
+    # 创建入群申请
+    message = request.POST.get("message", "").strip()
+    JoinRequest.objects.create(community=community, user=request.user, message=message)
+    messages.success(request, f"已提交入群申请，请等待群主或管理员审批。")
     return redirect("community_detail", pk=pk)
 
 
@@ -290,9 +343,129 @@ def community_join(request: HttpRequest, pk: int) -> HttpResponse:
 def community_leave(request: HttpRequest, pk: int) -> HttpResponse:
     """退出社群"""
     community = get_object_or_404(Community, pk=pk)
+    
+    if community.is_owner(request.user):
+        messages.error(request, "群主不能退出社群，请先转让群主身份。")
+        return redirect("community_detail", pk=pk)
+    
     CommunityMembership.objects.filter(community=community, user=request.user).delete()
     messages.info(request, f"已退出社群「{community.name}」。")
     return redirect("community_list")
+
+
+@login_required
+@require_POST
+def community_add_admin(request: HttpRequest, pk: int) -> HttpResponse:
+    """添加管理员"""
+    community = get_object_or_404(Community, pk=pk)
+    
+    if not community.is_owner(request.user):
+        messages.error(request, "只有群主可以添加管理员。")
+        return redirect("community_detail", pk=pk)
+    
+    if not community.can_add_admin():
+        messages.error(request, "管理员数量已达上限（最多5个）。")
+        return redirect("community_detail", pk=pk)
+    
+    user_id = request.POST.get("user_id")
+    try:
+        membership = CommunityMembership.objects.get(community=community, user_id=user_id)
+        if membership.is_admin:
+            messages.warning(request, "该成员已是管理员。")
+        else:
+            membership.is_admin = True
+            membership.save()
+            messages.success(request, f"已将 {membership.user.username} 设为管理员。")
+    except CommunityMembership.DoesNotExist:
+        messages.error(request, "该用户不在社群中。")
+    
+    return redirect("community_detail", pk=pk)
+
+
+@login_required
+@require_POST
+def community_remove_admin(request: HttpRequest, pk: int) -> HttpResponse:
+    """移除管理员"""
+    community = get_object_or_404(Community, pk=pk)
+    
+    if not community.is_owner(request.user):
+        messages.error(request, "只有群主可以移除管理员。")
+        return redirect("community_detail", pk=pk)
+    
+    user_id = request.POST.get("user_id")
+    try:
+        membership = CommunityMembership.objects.get(community=community, user_id=user_id)
+        if not membership.is_admin:
+            messages.warning(request, "该成员不是管理员。")
+        else:
+            membership.is_admin = False
+            membership.save()
+            messages.success(request, f"已移除 {membership.user.username} 的管理员身份。")
+    except CommunityMembership.DoesNotExist:
+        messages.error(request, "该用户不在社群中。")
+    
+    return redirect("community_detail", pk=pk)
+
+
+@login_required
+@require_POST
+def community_transfer_owner(request: HttpRequest, pk: int) -> HttpResponse:
+    """转让群主"""
+    community = get_object_or_404(Community, pk=pk)
+    
+    if not community.is_owner(request.user):
+        messages.error(request, "只有群主可以转让群主身份。")
+        return redirect("community_detail", pk=pk)
+    
+    user_id = request.POST.get("user_id")
+    try:
+        new_owner = User.objects.get(pk=user_id)
+        if not community.is_member(new_owner):
+            messages.error(request, "该用户不在社群中。")
+        else:
+            community.creator = new_owner
+            community.save()
+            messages.success(request, f"已将群主转让给 {new_owner.username}。")
+    except User.DoesNotExist:
+        messages.error(request, "用户不存在。")
+    
+    return redirect("community_detail", pk=pk)
+
+
+@login_required
+@require_POST
+def community_approve_request(request: HttpRequest, pk: int) -> HttpResponse:
+    """审批入群申请"""
+    community = get_object_or_404(Community, pk=pk)
+    
+    if not community.is_admin(request.user):
+        messages.error(request, "只有群主或管理员可以审批入群申请。")
+        return redirect("community_detail", pk=pk)
+    
+    request_id = request.POST.get("request_id")
+    action = request.POST.get("action")
+    
+    try:
+        join_request = JoinRequest.objects.get(pk=request_id, community=community, status="pending")
+        
+        if action == "approve":
+            join_request.status = "approved"
+            join_request.processed_by = request.user
+            join_request.processed_at = timezone.now()
+            join_request.save()
+            # 添加成员
+            CommunityMembership.objects.get_or_create(community=community, user=join_request.user)
+            messages.success(request, f"已同意 {join_request.user.username} 加入社群。")
+        elif action == "reject":
+            join_request.status = "rejected"
+            join_request.processed_by = request.user
+            join_request.processed_at = timezone.now()
+            join_request.save()
+            messages.info(request, f"已拒绝 {join_request.user.username} 的入群申请。")
+    except JoinRequest.DoesNotExist:
+        messages.error(request, "申请不存在或已处理。")
+    
+    return redirect("community_detail", pk=pk)
 
 
 # ========== 市场相关视图 ==========

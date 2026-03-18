@@ -23,6 +23,10 @@ urlpatterns = [
     path("communities/<int:pk>/", views.community_detail, name="community_detail"),
     path("communities/<int:pk>/join/", views.community_join, name="community_join"),
     path("communities/<int:pk>/leave/", views.community_leave, name="community_leave"),
+    path("communities/<int:pk>/add-admin/", views.community_add_admin, name="community_add_admin"),
+    path("communities/<int:pk>/remove-admin/", views.community_remove_admin, name="community_remove_admin"),
+    path("communities/<int:pk>/transfer-owner/", views.community_transfer_owner, name="community_transfer_owner"),
+    path("communities/<int:pk>/approve-request/", views.community_approve_request, name="community_approve_request"),
     
     # 交易所
     path("market/", views.market_list, name="market_list"),

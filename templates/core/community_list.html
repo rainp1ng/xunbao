@@ -21,10 +21,12 @@
               </h5>
               {% if community.id in user_communities %}
                 <span class="badge text-bg-success">已加入</span>
+              {% elif community.id in pending_requests %}
+                <span class="badge text-bg-warning">审批中</span>
               {% endif %}
             </div>
             <div class="small text-muted mb-2">
-              创建者：{{ community.creator.username }} · {{ community.member_set.count }} 成员
+              群主：{{ community.creator.username }} · {{ community.members.count }} 成员
             </div>
             {% if community.description %}
               <p class="card-text text-truncate">{{ community.description }}</p>

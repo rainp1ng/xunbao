@@ -12,15 +12,15 @@
 
   {% if user.is_authenticated and user_communities %}
   <div class="mb-3">
-    <form method="get" class="row g-2 align-items-center">
-      <div class="col-auto">
-        <select name="scope" class="form-select" onchange="this.form.submit()">
-          <option value="world" {% if scope == "world" %}selected{% endif %}>🌍 世界</option>
+    <form method="get" class="d-flex gap-2 align-items-center">
+      <div class="input-group" style="max-width: 300px;">
+        <span class="input-group-text">查看</span>
+        <select name="community" class="form-select" onchange="this.form.submit()">
+          <option value="">🌍 世界（全部）</option>
           {% for c in user_communities %}
-            <option value="community" data-community="{{ c.id }}" {% if scope == "community" and selected_community_id == c.id|stringformat:"s" %}selected{% endif %}>👥 {{ c.name }}</option>
+            <option value="{{ c.id }}" {% if selected_community_id == c.id|stringformat:"s" %}selected{% endif %}>👥 {{ c.name }}</option>
           {% endfor %}
         </select>
-        <input type="hidden" name="community" id="community-input" value="{% if scope == "community" %}{{ selected_community_id }}{% endif %}">
       </div>
     </form>
   </div>
@@ -74,18 +74,4 @@
       </div>
     {% endfor %}
   </div>
-{% endblock %}
-
-{% block scripts %}
-<script>
-document.querySelector('select[name="scope"]').addEventListener('change', function() {
-  const selected = this.options[this.selectedIndex];
-  const communityInput = document.getElementById('community-input');
-  if (selected.dataset.community) {
-    communityInput.value = selected.dataset.community;
-  } else {
-    communityInput.value = '';
-  }
-});
-</script>
 {% endblock %}

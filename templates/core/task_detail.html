@@ -71,6 +71,9 @@
               <button class="btn btn-success" type="submit">领取并开始寻宝</button>
             </form>
           {% endif %}
+          {% if task.creator_id == user.id and task.status != "completed" %}
+            <a class="btn btn-outline-primary" href="{% url 'task_edit' task.pk %}">编辑任务</a>
+          {% endif %}
         </div>
 
         {% if task.status == "claimed" and task.assignee_id == user.id %}

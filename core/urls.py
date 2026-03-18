@@ -11,6 +11,7 @@ urlpatterns = [
     
     # 寻宝任务
     path("tasks/new/", views.task_create, name="task_create"),
+    path("tasks/<int:pk>/edit/", views.task_edit, name="task_edit"),
     path("tasks/<int:pk>/", views.task_detail, name="task_detail"),
     path("tasks/<int:pk>/claim/", views.task_claim, name="task_claim"),
     path("tasks/<int:pk>/complete/", views.task_complete, name="task_complete"),

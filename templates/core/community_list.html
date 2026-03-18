@@ -8,8 +8,54 @@
     <a class="btn btn-primary" href="{% url 'community_create' %}">+ 创建社群</a>
   </div>
 
+  {# 搜索框 #}
+  <div class="mb-4">
+    <form method="get" class="d-flex gap-2" style="max-width: 400px;">
+      <input type="text" name="search" class="form-control" placeholder="搜索社群名称..." value="{{ search }}">
+      <button class="btn btn-outline-secondary" type="submit">搜索</button>
+      {% if search %}
+        <a class="btn btn-outline-secondary" href="{% url 'community_list' %}">清除</a>
+      {% endif %}
+    </form>
+  </div>
+
+  {# 已加入的社群 #}
+  {% if joined_communities %}
+  <h5 class="mb-3 text-muted">已加入的社群</h5>
+  <div class="row g-3 mb-4">
+    {% for community in joined_communities %}
+      <div class="col-12 col-md-6 col-lg-4">
+        <div class="card shadow-sm border-success">
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-start">
+              <h5 class="card-title mb-0">
+                <a class="text-decoration-none" href="{% url 'community_detail' community.pk %}">
+                  {{ community.name }}
+                </a>
+              </h5>
+              <span class="badge text-bg-success">已加入</span>
+            </div>
+            <div class="small text-muted mb-2">
+              群主：{{ community.creator.username }} · {{ community.members.count }} 成员
+            </div>
+            {% if community.description %}
+              <p class="card-text text-truncate">{{ community.description }}</p>
+            {% else %}
+              <p class="card-text text-muted">（暂无描述）</p>
+            {% endif %}
+            <a class="btn btn-outline-dark btn-sm" href="{% url 'community_detail' community.pk %}">进入社群</a>
+          </div>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {# 其他社群 #}
+  {% if other_communities %}
+  <h5 class="mb-3 text-muted">其他社群</h5>
   <div class="row g-3">
-    {% for community in communities %}
+    {% for community in other_communities %}
       <div class="col-12 col-md-6 col-lg-4">
         <div class="card shadow-sm">
           <div class="card-body">
@@ -19,9 +65,7 @@
                   {{ community.name }}
                 </a>
               </h5>
-              {% if community.id in user_communities %}
-                <span class="badge text-bg-success">已加入</span>
-              {% elif community.id in pending_requests %}
+              {% if community.id in pending_requests %}
                 <span class="badge text-bg-warning">审批中</span>
               {% endif %}
             </div>
@@ -37,10 +81,17 @@
           </div>
         </div>
       </div>
-    {% empty %}
-      <div class="col-12">
-        <div class="alert alert-info">还没有社群，创建一个吧！</div>
-      </div>
     {% endfor %}
   </div>
+  {% endif %}
+
+  {% if not joined_communities and not other_communities %}
+    <div class="alert alert-info">
+      {% if search %}
+        没有找到匹配「{{ search }}」的社群。
+      {% else %}
+        还没有社群，创建一个吧！
+      {% endif %}
+    </div>
+  {% endif %}
 {% endblock %}

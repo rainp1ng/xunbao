@@ -18,22 +18,24 @@ def home(request: HttpRequest) -> HttpResponse:
     tasks = TreasureTask.objects.exclude(status="completed")
     
     # 获取筛选参数
-    scope = request.GET.get("scope", "world")
     selected_community_id = request.GET.get("community", "")
     
     if request.user.is_authenticated:
-        if scope == "world":
-            # 世界：公开任务 + 用户所属社群的任务
-            user_communities = Community.objects.filter(members=request.user)
-            tasks = tasks.filter(Q(community__isnull=True) | Q(community__in=user_communities))
-        elif selected_community_id:
-            # 指定社群
+        user_communities = Community.objects.filter(members=request.user)
+        
+        if selected_community_id:
+            # 指定社群 - 只显示该社群的任务
             try:
                 community = Community.objects.get(pk=selected_community_id, members=request.user)
                 tasks = tasks.filter(community=community)
-            except Community.DoesNotExist:
-                tasks = tasks.filter(community__isnull=True)
+            except (Community.DoesNotExist, ValueError):
+                # 无效的社群ID，显示世界
+                tasks = tasks.filter(Q(community__isnull=True) | Q(community__in=user_communities))
+        else:
+            # 世界：公开任务 + 用户所属社群的任务
+            tasks = tasks.filter(Q(community__isnull=True) | Q(community__in=user_communities))
     else:
+        user_communities = []
         # 未登录只看公开任务
         tasks = tasks.filter(community__isnull=True)
     
@@ -170,6 +172,78 @@ def task_create(request: HttpRequest) -> HttpResponse:
 
 
 @login_required
+def task_edit(request: HttpRequest, pk: int) -> HttpResponse:
+    """编辑任务"""
+    task = get_object_or_404(TreasureTask, pk=pk)
+    
+    # 只有创建者可以编辑
+    if task.creator != request.user:
+        messages.error(request, "只有任务创建者可以编辑任务。")
+        return redirect("task_detail", pk=pk)
+    
+    # 已完成的任务不能编辑
+    if task.status == TreasureTask.Status.COMPLETED:
+        messages.error(request, "已完成的任务不能编辑。")
+        return redirect("task_detail", pk=pk)
+    
+    if request.method == "POST":
+        form = task_form(request.POST)
+        if form.is_valid():
+            assignee_username = (form.cleaned_data.get("assignee_username") or "").strip()
+            assignee = None
+            if assignee_username:
+                assignee = User.objects.filter(username=assignee_username).first()
+                if not assignee:
+                    form.add_error("assignee_username", "该用户名不存在")
+                    return render(request, "core/task_form.html", {"form": form, "communities": Community.objects.filter(members=request.user), "task": task, "is_edit": True})
+            
+            # 处理社群
+            community_id = request.POST.get("community_id")
+            community = None
+            if community_id:
+                try:
+                    community = Community.objects.get(pk=community_id, members=request.user)
+                except (Community.DoesNotExist, ValueError):
+                    pass
+            
+            # 更新任务
+            task.title = form.cleaned_data["title"]
+            task.description = form.cleaned_data["description"]
+            task.value_points = form.cleaned_data["value_points"]
+            task.assignee = assignee
+            task.community = community
+            task.publish_at = form.cleaned_data.get("publish_at")
+            task.expire_at = form.cleaned_data.get("expire_at")
+            
+            # 如果指定了执行者且状态是可领取，自动设为进行中
+            if assignee and task.status == TreasureTask.Status.OPEN:
+                task.status = TreasureTask.Status.CLAIMED
+            
+            task.save()
+            messages.success(request, "任务已更新。")
+            return redirect("task_detail", pk=task.pk)
+    else:
+        initial_data = {
+            "title": task.title,
+            "description": task.description,
+            "value_points": task.value_points,
+            "assignee_username": task.assignee.username if task.assignee else "",
+            "publish_at": task.publish_at,
+            "expire_at": task.expire_at,
+        }
+        form = task_form(initial=initial_data)
+    
+    communities = Community.objects.filter(members=request.user)
+    
+    return render(request, "core/task_form.html", {
+        "form": form,
+        "communities": communities,
+        "task": task,
+        "is_edit": True,
+    })
+
+
+@login_required
 @require_POST
 def task_claim(request: HttpRequest, pk: int) -> HttpResponse:
     task = get_object_or_404(TreasureTask, pk=pk)
@@ -241,10 +315,17 @@ def my_assigned_tasks(request: HttpRequest) -> HttpResponse:
 @login_required
 def community_list(request: HttpRequest) -> HttpResponse:
     """社群列表"""
-    communities = Community.objects.all().order_by("-created_at")
+    search = request.GET.get("search", "").strip()
+    
+    # 基础查询
+    communities = Community.objects.all()
+    
+    # 搜索过滤
+    if search:
+        communities = communities.filter(name__icontains=search)
     
     # 标记用户是否已加入
-    user_communities = set(
+    user_communities_ids = set(
         CommunityMembership.objects.filter(user=request.user).values_list("community_id", flat=True)
     )
     
@@ -253,10 +334,16 @@ def community_list(request: HttpRequest) -> HttpResponse:
         JoinRequest.objects.filter(user=request.user, status="pending").values_list("community_id", flat=True)
     )
     
+    # 分离已加入和未加入的社群
+    joined_communities = [c for c in communities if c.id in user_communities_ids]
+    other_communities = [c for c in communities if c.id not in user_communities_ids]
+    
     return render(request, "core/community_list.html", {
-        "communities": communities,
-        "user_communities": user_communities,
+        "joined_communities": joined_communities,
+        "other_communities": other_communities,
+        "user_communities": user_communities_ids,
         "pending_requests": pending_requests,
+        "search": search,
     })
 
 

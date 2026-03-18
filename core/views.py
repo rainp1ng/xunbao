@@ -10,7 +10,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from .forms import bank_form, community_form, login_form, market_form, register_form, task_form
+from .forms import bank_form, change_password_form, community_form, login_form, market_form, register_form, task_form
 from .models import Community, CommunityMembership, JoinRequest, MarketListing, Profile, TreasureTask
 
 
@@ -93,6 +93,21 @@ def logout_view(request: HttpRequest) -> HttpResponse:
     logout(request)
     messages.info(request, "已退出登录。")
     return redirect("home")
+
+
+@login_required
+def change_password(request: HttpRequest) -> HttpResponse:
+    """修改密码"""
+    if request.method == "POST":
+        form = change_password_form(request.user, request.POST)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "密码修改成功，请重新登录。")
+            logout(request)
+            return redirect("login")
+    else:
+        form = change_password_form(request.user)
+    return render(request, "core/change_password.html", {"form": form})
 
 
 def task_detail(request: HttpRequest, pk: int) -> HttpResponse:

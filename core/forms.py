@@ -17,6 +17,43 @@ class LoginForm(AuthenticationForm):
     pass
 
 
+class ChangePasswordForm(forms.Form):
+    old_password = forms.CharField(
+        label="当前密码",
+        widget=forms.PasswordInput(),
+    )
+    new_password1 = forms.CharField(
+        label="新密码",
+        widget=forms.PasswordInput(),
+    )
+    new_password2 = forms.CharField(
+        label="确认新密码",
+        widget=forms.PasswordInput(),
+    )
+
+    def __init__(self, user, *args, **kwargs):
+        self.user = user
+        super().__init__(*args, **kwargs)
+
+    def clean_old_password(self):
+        old_password = self.cleaned_data.get("old_password")
+        if not self.user.check_password(old_password):
+            raise forms.ValidationError("当前密码不正确")
+        return old_password
+
+    def clean_new_password2(self):
+        password1 = self.cleaned_data.get("new_password1")
+        password2 = self.cleaned_data.get("new_password2")
+        if password1 and password2 and password1 != password2:
+            raise forms.ValidationError("两次输入的新密码不一致")
+        return password2
+
+    def save(self):
+        self.user.set_password(self.cleaned_data["new_password1"])
+        self.user.save()
+        return self.user
+
+
 class CommunityForm(forms.ModelForm):
     class Meta:
         model = Community
@@ -89,6 +126,10 @@ def login_form(*args, **kwargs) -> LoginForm:
 
 def task_form(*args, **kwargs) -> TreasureTaskForm:
     return _bootstrapify(TreasureTaskForm(*args, **kwargs))
+
+
+def change_password_form(*args, **kwargs) -> ChangePasswordForm:
+    return _bootstrapify(ChangePasswordForm(*args, **kwargs))
 
 
 def community_form(*args, **kwargs) -> CommunityForm:

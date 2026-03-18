@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block content %}
+  <h2 class="mb-3">我寻宝的任务</h2>
+  <div class="row g-3">
+    {% for task in tasks %}
+      <div class="col-12 col-md-6 col-lg-4">
+        <div class="card shadow-sm border-warning border-2">
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-start">
+              <div class="d-flex align-items-center gap-2">
+                <span style="font-size: 1.6rem;">🧰</span>
+                <h5 class="card-title mb-0">
+                  <a class="text-decoration-none" href="{% url 'task_detail' task.pk %}">
+                    {{ task.title }}
+                  </a>
+                </h5>
+              </div>
+              <span class="badge text-bg-warning">{{ task.value_points }} 积分</span>
+            </div>
+            <div class="small text-muted mt-1">
+              藏宝人：{{ task.creator.username }}
+              · 状态：{{ task.get_status_display }}
+            </div>
+          </div>
+        </div>
+      </div>
+    {% empty %}
+      <div class="col-12">
+        <div class="alert alert-info">你还没有领取过宝藏任务。</div>
+      </div>
+    {% endfor %}
+  </div>
+{% endblock %}
+

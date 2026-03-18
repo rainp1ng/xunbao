@@ -1,0 +1,80 @@
+from django import forms
+from django.contrib.auth.forms import AuthenticationForm, UserCreationForm
+from django.contrib.auth.models import User
+
+from .models import MarketListing, TreasureTask
+
+
+class RegisterForm(UserCreationForm):
+    email = forms.EmailField(required=False)
+
+    class Meta:
+        model = User
+        fields = ("username", "email", "password1", "password2")
+
+
+class LoginForm(AuthenticationForm):
+    pass
+
+
+class TreasureTaskForm(forms.ModelForm):
+    assignee_username = forms.CharField(
+        required=False,
+        help_text="可选：指定执行者用户名（不填则任何人可领取）",
+    )
+
+    class Meta:
+        model = TreasureTask
+        fields = ("title", "description", "value_points", "assignee_username")
+
+
+class MarketListingForm(forms.ModelForm):
+    class Meta:
+        model = MarketListing
+        fields = ("title", "description", "price_points")
+
+
+class BankExchangeForm(forms.Form):
+    gold = forms.IntegerField(min_value=0, required=False, initial=0, label="兑换金币数量")
+    silver = forms.IntegerField(min_value=0, required=False, initial=0, label="兑换银币数量")
+
+    def clean(self):
+        cleaned = super().clean()
+        gold = cleaned.get("gold") or 0
+        silver = cleaned.get("silver") or 0
+        if gold == 0 and silver == 0:
+            raise forms.ValidationError("请至少填写一种货币的兑换数量")
+        return cleaned
+
+
+def _bootstrapify(form):
+    for name, field in form.fields.items():
+        widget = field.widget
+        cls = widget.attrs.get("class", "")
+        if isinstance(widget, (forms.TextInput, forms.EmailInput, forms.PasswordInput, forms.NumberInput)):
+            widget.attrs["class"] = (cls + " form-control").strip()
+        elif isinstance(widget, forms.Textarea):
+            widget.attrs["class"] = (cls + " form-control").strip()
+            widget.attrs.setdefault("rows", 4)
+    return form
+
+
+def register_form(*args, **kwargs) -> RegisterForm:
+    return _bootstrapify(RegisterForm(*args, **kwargs))
+
+
+def login_form(*args, **kwargs) -> LoginForm:
+    return _bootstrapify(LoginForm(*args, **kwargs))
+
+
+def task_form(*args, **kwargs) -> TreasureTaskForm:
+    return _bootstrapify(TreasureTaskForm(*args, **kwargs))
+
+
+def market_form(*args, **kwargs) -> MarketListingForm:
+    return _bootstrapify(MarketListingForm(*args, **kwargs))
+
+
+def bank_form(*args, **kwargs) -> BankExchangeForm:
+    return _bootstrapify(BankExchangeForm(*args, **kwargs))
+

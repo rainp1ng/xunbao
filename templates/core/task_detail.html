@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block content %}
+  <div class="mb-3">
+    <a class="text-decoration-none" href="{% url 'home' %}">← 返回任务列表</a>
+  </div>
+
+  <div class="card shadow-sm border-warning border-3">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-start">
+        <div class="d-flex align-items-center gap-3">
+          <span style="font-size: 2.2rem;">🧰</span>
+          <div>
+            <h2 class="mb-1">{{ task.title }}</h2>
+            <div class="text-muted">
+              藏宝人：{{ task.creator.username }}
+              · 状态：{{ task.get_status_display }}
+              {% if task.assignee %}
+                · 执行者：{{ task.assignee.username }}
+              {% endif %}
+            </div>
+          </div>
+        </div>
+        <span class="badge text-bg-warning fs-5 align-self-start">
+          {{ task.value_points }} 积分
+        </span>
+      </div>
+
+      <hr />
+
+      {% if task.description %}
+        <p class="mb-3">{{ task.description|linebreaks }}</p>
+      {% else %}
+        <p class="text-muted mb-3">（暂无描述）</p>
+      {% endif %}
+
+      {% if user.is_authenticated %}
+        <div class="d-flex gap-2 flex-wrap">
+          {% if task.status == "open" %}
+            <form method="post" action="{% url 'task_claim' task.pk %}">
+              {% csrf_token %}
+              <button class="btn btn-success" type="submit">领取并开始寻宝</button>
+            </form>
+          {% endif %}
+        </div>
+
+        {% if task.status == "claimed" and task.assignee_id == user.id %}
+          <form method="post" action="{% url 'task_complete' task.pk %}" class="mt-3">
+            {% csrf_token %}
+            <div class="mb-2">
+              <label class="form-label">完成任务的证明（描述你是如何完成的）</label>
+              <textarea name="proof" class="form-control" rows="3" required></textarea>
+            </div>
+            <button class="btn btn-primary" type="submit">完成任务（提交证明并领取积分）</button>
+          </form>
+        {% endif %}
+      {% else %}
+        <div class="alert alert-info mt-3">
+          登录后才能领取/完成任务。<a href="{% url 'login' %}">去登录</a>
+        </div>
+      {% endif %}
+
+      {% if task.status == "completed" and task.completion_proof %}
+        <hr />
+        <h5>完成证明</h5>
+        <p>{{ task.completion_proof|linebreaks }}</p>
+      {% endif %}
+    </div>
+  </div>
+{% endblock %}
+

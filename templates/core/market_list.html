@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block content %}
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <div>
+      <h2 class="mb-1">交易所</h2>
+      <div class="text-muted">浏览摆摊商品；登录后可上架与购买。</div>
+    </div>
+    {% if user.is_authenticated %}
+      <a class="btn btn-primary" href="{% url 'market_create' %}">+ 我要摆摊</a>
+    {% endif %}
+  </div>
+
+  <div class="row g-3">
+    {% for listing in listings %}
+      <div class="col-12 col-md-6 col-lg-4">
+        <div class="card shadow-sm">
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-start">
+              <h5 class="card-title mb-1">
+                <a class="text-decoration-none" href="{% url 'market_detail' listing.pk %}">
+                  {{ listing.title }}
+                </a>
+              </h5>
+              <span class="badge text-bg-info">{{ listing.price_points }} 积分</span>
+            </div>
+            <div class="small text-muted mb-2">
+              卖家：{{ listing.seller.username }}
+              · {% if listing.is_active %}在售{% else %}已售{% endif %}
+            </div>
+            {% if listing.description %}
+              <p class="card-text text-truncate">{{ listing.description }}</p>
+            {% else %}
+              <p class="card-text text-muted">（暂无描述）</p>
+            {% endif %}
+            <a class="btn btn-outline-dark btn-sm" href="{% url 'market_detail' listing.pk %}">查看摊位</a>
+          </div>
+        </div>
+      </div>
+    {% empty %}
+      <div class="col-12">
+        <div class="alert alert-info">交易所还没人摆摊，登录后上架一个吧。</div>
+      </div>
+    {% endfor %}
+  </div>
+{% endblock %}
+

@@ -1,0 +1,24 @@
+# Database
+*.sqlite3
+*.db
+*.sql
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+
+# Django
+*.log
+local_settings.py
+
+# OS
+.DS_Store
+
+# Other
+nohup.out

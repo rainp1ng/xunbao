@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block content %}
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <div>
+      <h2 class="mb-1">宝藏任务</h2>
+      <div class="text-muted">未登录也可浏览；登录后可藏宝与寻宝。</div>
+    </div>
+    {% if user.is_authenticated %}
+      <a class="btn btn-primary" href="{% url 'task_create' %}">+ 发起藏宝任务</a>
+    {% endif %}
+  </div>
+
+  <div class="row g-3">
+    {% for task in tasks %}
+      <div class="col-12 col-md-6 col-lg-4">
+        <div class="card shadow-sm border-warning border-2">
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-start">
+              <div class="d-flex align-items-center gap-2">
+                <span style="font-size: 1.6rem;">🧰</span>
+                <h5 class="card-title mb-0">
+                  <a class="text-decoration-none" href="{% url 'task_detail' task.pk %}">
+                    {{ task.title }}
+                  </a>
+                </h5>
+              </div>
+              <span class="badge text-bg-warning">{{ task.value_points }} 积分</span>
+            </div>
+            <div class="small text-muted mb-2">
+              藏宝人：{{ task.creator.username }}
+              {% if task.assignee %}
+                · 指定：{{ task.assignee.username }}
+              {% else %}
+                · 不指定执行者
+              {% endif %}
+            </div>
+            <div class="mb-2">
+              <span class="badge text-bg-secondary">状态：{{ task.get_status_display }}</span>
+            </div>
+            {% if task.description %}
+              <p class="card-text text-truncate">{{ task.description }}</p>
+            {% else %}
+              <p class="card-text text-muted">（暂无描述）</p>
+            {% endif %}
+            <a class="btn btn-outline-dark btn-sm" href="{% url 'task_detail' task.pk %}">打开宝藏盒子</a>
+          </div>
+        </div>
+      </div>
+    {% empty %}
+      <div class="col-12">
+        <div class="alert alert-info">还没有宝藏任务，登录后试试发起一个吧。</div>
+      </div>
+    {% endfor %}
+  </div>
+{% endblock %}
+
